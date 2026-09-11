@@ -164,9 +164,12 @@ pub(crate) fn select_auth_plan(
         env_lookup,
     );
 
-    if inputs.azure_ad_token_provider.is_none()
-        && let (Some(tenant_id), Some(client_id), Some(client_secret)) =
-            (tenant_id.clone(), client_id.clone(), client_secret)
+    if let Some(caller) = &inputs.azure_ad_token_provider {
+        return Ok(AzureCredentialPlan::Caller(caller.clone()));
+    }
+
+    if let (Some(tenant_id), Some(client_id), Some(client_secret)) =
+        (tenant_id.clone(), client_id.clone(), client_secret)
     {
         return Ok(AzureCredentialPlan::Native(ValidatedAzureRequest::new(
             NativeAzureRequest::ClientSecret {
@@ -191,10 +194,6 @@ pub(crate) fn select_auth_plan(
             scope,
             authority,
         });
-    }
-
-    if let Some(caller) = &inputs.azure_ad_token_provider {
-        return Ok(AzureCredentialPlan::Caller(caller.clone()));
     }
 
     if let Some(token) = token {
@@ -467,13 +466,13 @@ mod tests {
         resolve_reference, select_auth_plan,
     };
     use crate::AuthError;
-    use crate::auth::ResolvedCredential;
     use crate::auth::azure::AzureAuthInputs;
     use crate::auth::azure::native::ValidatedAzureRequest;
     use crate::auth::{
         CredentialFileRef, CredentialLookup, CredentialLookupFuture, CredentialRef,
         CredentialResolver, CredentialResolverHandle, InputSource, SecretValue, Sourced,
     };
+    use crate::auth::{ResolvedCredential, TokenFuture, TokenProvider, TokenProviderHandle};
 
     #[derive(Debug)]
     struct FileResolver;
@@ -481,6 +480,20 @@ mod tests {
     struct ChainAcquirer {
         requests: Mutex<Vec<&'static str>>,
         succeed_on: Option<&'static str>,
+    }
+
+    #[derive(Debug)]
+    struct StaticTokenProvider;
+
+    impl TokenProvider for StaticTokenProvider {
+        fn acquire(&self) -> TokenFuture<'_> {
+            Box::pin(async {
+                Ok(ResolvedCredential::AccessToken {
+                    token: SecretValue::new("provider-token"),
+                    expires_on: None,
+                })
+            })
+        }
     }
 
     impl AzureTokenAcquirer for ChainAcquirer {
@@ -561,6 +574,24 @@ mod tests {
                 reference,
                 ..
             } if reference.value() == &CredentialRef::Env("ASSERTION".to_string())
+        ));
+    }
+
+    #[test]
+    fn caller_provider_takes_precedence_over_oidc() {
+        let params = json!({
+            "azure_ad_token": "oidc/env/ASSERTION",
+            "tenant_id": "tenant",
+            "client_id": "client"
+        });
+        let inputs = AzureAuthInputs {
+            azure_ad_token_provider: Some(TokenProviderHandle::new(Arc::new(StaticTokenProvider))),
+            ..AzureAuthInputs::from_optional_params(params.as_object().unwrap()).unwrap()
+        };
+
+        assert!(matches!(
+            select_auth_plan(&inputs, &|_| None).unwrap(),
+            AzureCredentialPlan::Caller(_)
         ));
     }
 

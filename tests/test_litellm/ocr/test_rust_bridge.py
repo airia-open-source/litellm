@@ -1,5 +1,6 @@
 """Tests for the optional Rust-backed OCR path."""
 
+import asyncio
 import builtins
 import importlib
 import types
@@ -49,6 +50,7 @@ class RecordingBridge:
 
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.logging_obj: object = None
 
     def __call__(
         self,
@@ -61,7 +63,12 @@ class RecordingBridge:
         optional_params: dict[str, object],
         input_sources: dict[str, str],
         timeout_seconds: float | None,
+        logging_obj: object = None,
+        callback_loop: asyncio.AbstractEventLoop | None = None,
+        token_provider: object = None,
+        call_completion: object = None,
     ) -> dict[str, object]:
+        self.logging_obj = logging_obj
         self.calls.append(
             {
                 "model": model,
@@ -95,6 +102,10 @@ class RecordingAsyncBridge:
         optional_params: dict[str, object],
         input_sources: dict[str, str],
         timeout_seconds: float | None,
+        logging_obj: object = None,
+        callback_loop: asyncio.AbstractEventLoop | None = None,
+        token_provider: object = None,
+        call_completion: object = None,
     ) -> dict[str, object]:
         self.calls.append(
             {
@@ -124,6 +135,10 @@ class RaisingBridge:
         optional_params: dict[str, object],
         input_sources: dict[str, str],
         timeout_seconds: float | None,
+        logging_obj: object = None,
+        callback_loop: asyncio.AbstractEventLoop | None = None,
+        token_provider: object = None,
+        call_completion: object = None,
     ) -> dict[str, object]:
         raise RuntimeError("bridge failed")
 
@@ -140,6 +155,10 @@ class RaisingAsyncBridge:
         optional_params: dict[str, object],
         input_sources: dict[str, str],
         timeout_seconds: float | None,
+        logging_obj: object = None,
+        callback_loop: asyncio.AbstractEventLoop | None = None,
+        token_provider: object = None,
+        call_completion: object = None,
     ) -> dict[str, object]:
         raise RuntimeError("bridge failed")
 
@@ -775,18 +794,12 @@ def test_rust_ocr_logging_redacts_azure_credentials():
         "azure_ad_token": "****",
         "client_secret": "****",
     }
-    assert logging_obj.pre_call_kwargs is not None
-    additional_args = logging_obj.pre_call_kwargs["additional_args"]
-    assert isinstance(additional_args, dict)
-    complete_input = additional_args["complete_input_dict"]
-    assert isinstance(complete_input, dict)
-    assert complete_input["azure_ad_token"] == "****"
-    assert complete_input["client_secret"] == "****"
+    assert logging_obj.pre_call_kwargs is None
+    assert bridge.logging_obj is logging_obj
 
 
 def test_rust_eligibility_rejects_python_only_azure_auth_modes():
     for params in (
-        {"azure_ad_token_provider": lambda: "token"},
         {"azure_username": "user"},
         {"azure_password": "password"},
     ):
@@ -821,7 +834,7 @@ def test_prepare_rust_ocr_call_forwards_global_azure_refresh(monkeypatch: pytest
     assert bridge.calls[0]["input_sources"] == {"enable_azure_ad_token_refresh": "deployment"}
 
 
-def test_run_rust_ocr_runs_pre_call_logging():
+def test_run_rust_ocr_passes_retained_logger_to_native_dispatch():
     logging_obj = RecordingLogging()
     bridge = RecordingBridge()
     litellm.rust(True)
@@ -838,16 +851,9 @@ def test_run_rust_ocr_runs_pre_call_logging():
         resolve_api_key=lambda _name: None,
     )
 
-    assert logging_obj.pre_call_kwargs is not None
-    assert logging_obj.pre_call_kwargs["input"] == "OCR document processing"
-    additional_args = logging_obj.pre_call_kwargs["additional_args"]
-    complete_input = additional_args["complete_input_dict"]
-    assert complete_input["document"] == DOCUMENT
-    assert complete_input["include_image_base64"] is True
-    assert additional_args["api_base"] == "https://api.mistral.ai/v1"
-    assert additional_args["headers"] == {
-        "x-trace-id": "trace-1",
-    }
+    assert logging_obj.pre_call_kwargs is None
+    assert bridge.logging_obj is logging_obj
+    assert bridge.calls[0]["document"] is DOCUMENT
 
 
 def test_ocr_routes_to_rust_when_enabled(fake_bridge):
