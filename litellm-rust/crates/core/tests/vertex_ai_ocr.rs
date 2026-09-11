@@ -1,7 +1,6 @@
 use serde_json::{Value, json};
 
 use super::test_support::{MockResponse, mock_server, perform_ocr, wire_request};
-use super::wire::{OcrWireRequest, decode_request};
 use crate::auth::InputSource;
 
 fn request_body(request: &str) -> Value {
