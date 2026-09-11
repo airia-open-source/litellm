@@ -18,6 +18,7 @@ import httpx
 import litellm
 from litellm._logging import verbose_logger
 from litellm.constants import request_timeout
+from litellm.litellm_core_utils.call_completion import CallCompletion
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 from litellm.llms.azure_ai.ocr.common_utils import (
     is_azure_cohere_parse_model,
@@ -465,6 +466,8 @@ async def aocr(
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     extra_headers: dict[str, object] | None = None,
+    *,
+    _litellm_call_completion: CallCompletion | None = None,
     **kwargs: object,
 ) -> OCRResponse:
     """
@@ -525,7 +528,6 @@ async def aocr(
         )
         ```
     """
-    call_completion: Final = kwargs.pop("_litellm_call_completion", None)
     completion_kwargs: Final[dict[str, object]] = {
         "model": model,
         "document": document,
@@ -545,7 +547,7 @@ async def aocr(
         custom_llm_provider=custom_llm_provider,
         extra_headers=extra_headers,
         kwargs=kwargs,
-        call_completion=call_completion,
+        call_completion=_litellm_call_completion,
     )
     try:
         if rust_enabled() and _rust_ocr_supported(request):
@@ -745,6 +747,8 @@ def ocr(
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     extra_headers: dict[str, object] | None = None,
+    *,
+    _litellm_call_completion: CallCompletion | None = None,
     **kwargs: object,
 ) -> OCRResponse | Coroutine[object, object, OCRResponse]:
     """
@@ -809,7 +813,6 @@ def ocr(
             print(f"Page {page.index}: {page.markdown}")
         ```
     """
-    call_completion: Final = kwargs.pop("_litellm_call_completion", None)
     completion_kwargs: Final[dict[str, object]] = {
         "model": model,
         "document": document,
@@ -829,7 +832,7 @@ def ocr(
         custom_llm_provider=custom_llm_provider,
         extra_headers=extra_headers,
         kwargs=kwargs,
-        call_completion=call_completion,
+        call_completion=_litellm_call_completion,
     )
     try:
         _is_async: Final = kwargs.pop("aocr", False) is True
